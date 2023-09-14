@@ -34,29 +34,86 @@ import onetimepass
 import os
 import re
 import settings
-import sys
+import sys, subprocess
+sys.path.append( '/home/user/venv/lib/python3.11/site-packages' )
 import time
 import urllib
+import mysql.connector
+from mysql.connector import errorcode
+runtime=0
+def mysql_conn():
+
+  try:
+    global cnx
+    cnx = mysql.connector.connect(
+    host="127.0.0.1",
+    port=3306,
+    user="",
+    password="",
+    database = "", auth_plugin='mysql_native_password')
+    return cnx
+  except mysql.connector.Error as err:
+    print(err)    
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 STATE_DIR = os.path.join(BASE_DIR, 'state')
 TEMPLATE_FILE = os.path.join(BASE_DIR, 'template.html')
-TOKEN_FILE = os.path.join(BASE_DIR, 'tokens.json')
 
 fields = cgi.FieldStorage()
 token_user = fields.getvalue('p', None)
 url = os.environ.get('QUERY_STRING', '/')
-
-with open(TOKEN_FILE, 'r') as f:
-    secret = json.load(f)
+host = os.environ.get('SERVER_NAME', '/')
 
 user = os.environ.get('REMOTE_USER', None)
-user_secret = secret.get(user, None)
+user_secret = 'DEFAULT'
 
-if user is None or user_secret is None:
-    print("Content-type: text/html\r\n\r\n")
-    print("Contact your administrator to obtain your 2FA secret.\n")
-    sys.exit()
+cnx = mysql_conn()
+cursor = cnx.cursor(buffered=True)
+
+try:
+
+  select_query = ("SELECT the_mfa_secret FROM user WHERE userid = %s LIMIT 1")
+  cursor.execute(select_query, (user,)) 
+  rows = cursor.fetchall()
+  
+  for i, row in enumerate(rows):
+  
+    try:
+
+      user_secret = "" + row[0] + ""        
+      
+      if user_secret == "none":
+      
+        raise e
+        
+    except Exception as e:
+
+      hexsecret_cmd = "head -10 /dev/urandom | md5sum | cut -b 1-30 | xargs oathtool --verbose --totp | grep \"Base32\" | cut -b 16-"
+      hexsecret_cmd_proc = subprocess.Popen([hexsecret_cmd], stdout=subprocess.PIPE, shell=True)
+      (out, err) = hexsecret_cmd_proc.communicate() 
+      hexsecret_cmd_log = out.decode('utf-8')
+      hexsecret_cmd_log_err = err
+      hexsecret_cmd_log = re.sub("\n", "", hexsecret_cmd_log)
+
+      qrencode_cmd = "/usr/bin/qrencode otpauth://totp/" + user + "?secret=" + hexsecret_cmd_log + " -o /var/www/qrencode/" + hexsecret_cmd_log + ".png"
+      qrencode_cmd_proc = subprocess.Popen([qrencode_cmd], stdout=subprocess.PIPE, shell=True)
+      (out, err) = qrencode_cmd_proc.communicate() 
+      qrencode_cmd_log = out.decode('utf-8')
+      qrencode_cmd_log_err = err
+
+      update_query = ("UPDATE user SET the_mfa_secret = %s WHERE userid = %s")
+      cursor.execute(update_query, (hexsecret_cmd_log,user))
+      cnx.commit()
+      
+      runtime=1
+      print("Content-type: text/html\r\n\r\n")
+      print("<center style=\"font-family:verdana\"><h2>Scan this code with your mobile MFA application</h2> Once scanned, submit the code in the form to continue. <P> This QR code will appear for just this one login attempt.<P><img src = /qrencode/" + hexsecret_cmd_log + ".png></div></center>")
+            
+except Exception as e:  
+  cursor.close()
+  cnx.close()
+cursor.close()
+cnx.close()
 
 if onetimepass.valid_totp(token=token_user, secret=user_secret, window=1):
     cookie = Cookie.SimpleCookie()
@@ -78,11 +135,12 @@ if onetimepass.valid_totp(token=token_user, secret=user_secret, window=1):
         state.write('%s\n%s\n%s\n' % (os.environ.get('HTTP_USER_AGENT', ''),
                 os.environ.get('REMOTE_ADDR', ''),
                 os.environ.get('REMOTE_USER', '')))
-
     print("Status: 302 Moved")
-    print("Location: " + urllib.parse.unquote(url))
+    print("Location: /")
     print(cookie)
     print()
 else:
-    print("Content-type: text/html\r\n\r\n")
-    print(open(TEMPLATE_FILE).read())
+  if runtime == 0:
+    print("Content-type: text/html\r\n\r\n")    
+  print(open(TEMPLATE_FILE).read())
+ 
