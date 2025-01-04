@@ -1,5 +1,7 @@
 # Apache Two-Factor (2FA) Authentication with Google Authenticator
 
+CuseTheJuice Contribution: Added ability in auth to pull autho tokens from MySQL database
+
 <img src='https://raw.githubusercontent.com/itemir/apache_2fa/master/2fa_demo.gif' align='left' width='400' height='276' hspace='5' vspace='5'>
 
 [Two-factor authentication](https://en.wikipedia.org/wiki/Multi-factor_authentication) also known as 2FA, adds an extra step to a basic authentication procedure. Without 2FA, a user only enters username and password. In this case, the password is the single factor of authentication. With 2FA an additional authentication mechanism is used, that is preferably performed out-of-band.
